@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_final_fields, avoid_print
+
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
@@ -14,11 +16,14 @@ class BlueProvider with ChangeNotifier {
   final StreamController<Uint8List> _dataStreamController =
       StreamController<Uint8List>.broadcast();
 
+  List<int> _ecgvalues = [];
+
   BluetoothState get bluetoothState => _bluetoothState;
   bool get isDiscovering => _isDiscovering;
   bool get isConnected => _isConnected;
   List<BluetoothDevice> get devices => _devices;
   Stream<Uint8List> get onDataReceived => _dataStreamController.stream;
+  List<int> get ecgvalues => _ecgvalues;
 
   // List<TrackerRecord> _readings = [];
   // List<TrackerRecord> get readings => _readings;
@@ -33,7 +38,7 @@ class BlueProvider with ChangeNotifier {
     notifyListeners();
 
     _bluetooth.onStateChanged().listen((state) {
-      print(state);
+      print("state: ${state}");
       _bluetoothState = state;
       notifyListeners();
 
@@ -54,7 +59,7 @@ class BlueProvider with ChangeNotifier {
       Permission.bluetooth,
       Permission.bluetoothConnect,
       Permission.bluetoothScan,
-      Permission.bluetoothAdvertise,
+      // Permission.bluetoothAdvertise,
     ].request();
 
     if (statuses[Permission.location]!.isDenied ||
@@ -67,7 +72,6 @@ class BlueProvider with ChangeNotifier {
       print("Necessary permissions denied.");
       return;
     }
-
     print("All necessary permissions granted.");
   }
 
@@ -144,13 +148,15 @@ class BlueProvider with ChangeNotifier {
 
   void _onDataReceived(Uint8List data) {
     try {
-      print('Received data: ${String.fromCharCodes(data)}');
+      //print('Received data: ${String.fromCharCodes(data)}');
       // _receivedData = data;
       // notifyListeners();
 
-      _dataStreamController.add(data);
+      if (data.isNotEmpty && data[0] == 0xFF) {
+        _dataStreamController.add(data);
+      }
     } catch (error) {
-      print(error);
+      print('Error processing data: $error');
     }
   }
 

@@ -39,7 +39,8 @@ dependencies:
   provider: ^6.0.5
   path_provider: ^2.0.11
   permission_handler: ^11.0.0
-  syncfusion_flutter_charts:
+  syncfusion_flutter_charts: ^20.1.59
+  fl_chart:
 
 dev_dependencies:
   flutter_test:

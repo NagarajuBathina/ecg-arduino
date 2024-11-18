@@ -59,13 +59,25 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   }
 
   void connectToDevice(BluetoothDevice device) async {
-    context.showLoading();
-    await _blueProvider.connectToDevice(device);
+    if (device.name == 'AYT-22') {
+      context.showLoading();
+      await _blueProvider.connectToDevice(device);
 
-    if (!mounted) return;
-    context.hideLoading();
+      if (!mounted) return;
+      context.hideLoading();
 
-    _blueProvider.sendData(jsonEncode({"command": "GET_DEVICE_PROPERTIES"}));
+      _blueProvider.sendData(jsonEncode({"command": "GET_DEVICE_PROPERTIES"}));
+
+      // Navigator.pushAndRemoveUntil(
+      //     context,
+      //     MaterialPageRoute(
+      //         builder: (context) =>
+      //             EcgScreen(ecgStream: _blueProvider.onDataReceived)),
+      //     (route) => false);
+    } else {
+      print('Device not matched');
+      context.hideLoading();
+    }
   }
 
   void _handleBluetoothData(Uint8List data) {
@@ -96,7 +108,6 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   @override
   void dispose() {
     super.dispose();
-
     _blueProvider.stopDiscovery();
   }
 

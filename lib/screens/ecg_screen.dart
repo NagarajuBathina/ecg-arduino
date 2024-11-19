@@ -1,11 +1,11 @@
 // ignore_for_file: prefer_const_constructors, library_private_types_in_public_api
 
 import 'dart:async';
+
 import 'package:ecg_arduino/provider/BlueProvider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app/constants.dart';
 
 class EcgScreen extends StatefulWidget {
   const EcgScreen({super.key});
@@ -18,15 +18,15 @@ class _EcgScreenState extends State<EcgScreen> {
   final CircularBuffer ecgData = CircularBuffer(1800);
   double currentX = 0;
 //  static const int maxDataPoints = 600; // 3 seconds of data at 200Hz
-  static const double xAxisDuration = 9.0; // 3 seconds window
+  static const double xAxisDuration = 10.0; // 3 seconds window
   static const double minY = -200;
-  static const double maxY = 400;
+  static const double maxY = 500;
   bool isReading = false;
   late BlueProvider _blueProvider;
   StreamSubscription? _dataSubscription;
   final EcgProcessor _processor = EcgProcessor();
   Timer? _updateTimer;
-
+  static const Duration animationDuration = Duration(milliseconds: 200);
   @override
   void initState() {
     super.initState();
@@ -45,17 +45,28 @@ class _EcgScreenState extends State<EcgScreen> {
     if (!mounted) return;
     setState(() {
       isReading = true;
+      currentX = 0;
     });
 
     // Send command to start ECG readings
     _blueProvider.sendData('5');
 
+    // Accumulate processed values and update in batches
+    final List<double> buffer = [];
+    const int batchIntervalMs = 1000;
+
     // Setup data listener
     _dataSubscription = _blueProvider.onDataReceived.listen((data) {
       List<double> processedValues = _processor.processData(data);
-      for (double value in processedValues) {
-        _addDataPoint(value);
-      }
+      buffer.addAll(processedValues);
+
+      // Periodically flush buffer to add data points
+      Timer(Duration(milliseconds: batchIntervalMs), () {
+        if (buffer.isNotEmpty) {
+          buffer.forEach(_addDataPoint);
+          buffer.clear();
+        }
+      });
     });
   }
 
@@ -71,13 +82,13 @@ class _EcgScreenState extends State<EcgScreen> {
     // Cancel data subscription
     _dataSubscription?.cancel();
     _dataSubscription = null;
-
+    ecgData.clear();
     // Reset chart to empty state
     _stopChartUpdate();
   }
 
   void _startChartUpdate() {
-    _updateTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    _updateTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!mounted) {
         _updateTimer?.cancel();
         return;
@@ -129,79 +140,83 @@ class _EcgScreenState extends State<EcgScreen> {
         child: SizedBox(
           height: 400,
           child: LineChart(
-            LineChartData(
-              minX: 0,
-              maxX: xAxisDuration,
-              minY: minY,
-              maxY: maxY,
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: true,
-                horizontalInterval: 100,
-                verticalInterval: 1,
-                getDrawingHorizontalLine: (value) {
-                  return FlLine(
-                    color: Colors.grey[300],
-                    strokeWidth: 1,
-                  );
-                },
-                getDrawingVerticalLine: (value) {
-                  return FlLine(
-                    color: Colors.grey[300],
-                    strokeWidth: 1,
-                  );
-                },
-              ),
-              titlesData: FlTitlesData(
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 30,
-                    interval: 0.5,
-                    getTitlesWidget: (value, meta) {
-                      return Text(
-                        value.toStringAsFixed(1),
-                        style: const TextStyle(fontSize: 12),
-                      );
-                    },
+              swapAnimationDuration: animationDuration,
+              swapAnimationCurve: Curves.easeInOut,
+              LineChartData(
+                minX: 0,
+                maxX: xAxisDuration,
+                minY: minY,
+                maxY: maxY,
+                backgroundColor: Colors.black,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: true,
+                  horizontalInterval: 200,
+                  verticalInterval: 1,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: Colors.grey[300],
+                      strokeWidth: 0.5,
+                    );
+                  },
+                  getDrawingVerticalLine: (value) {
+                    return FlLine(
+                      color: Colors.grey[300],
+                      strokeWidth: 0.5,
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      interval: 1,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          value.toStringAsFixed(1),
+                          style: const TextStyle(fontSize: 12),
+                        );
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      interval: 100,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          value.toInt().toString(),
+                          style: TextStyle(fontSize: 12),
+                        );
+                      },
+                    ),
+                  ),
+                  rightTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
                   ),
                 ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 40,
-                    interval: 100,
-                    getTitlesWidget: (value, meta) {
-                      return Text(
-                        value.toInt().toString(),
-                        style: TextStyle(fontSize: 12),
-                      );
-                    },
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border.all(color: Colors.black, width: 1),
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: isReading ? ecgData.getSpots() : [],
+                    isCurved: true,
+                    curveSmoothness: 0.1,
+                    color: Colors.greenAccent,
+                    barWidth: 2,
+                    dotData: FlDotData(show: false),
+                    belowBarData: BarAreaData(show: false),
+                    isStrokeCapRound: true,
                   ),
-                ),
-                rightTitles: AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                topTitles: AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-              ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border.all(color: Colors.black, width: 1),
-              ),
-              lineBarsData: [
-                LineChartBarData(
-                  spots: ecgData.getSpots(),
-                  isCurved: false,
-                  color: Colors.blue,
-                  barWidth: 2,
-                  dotData: FlDotData(show: false),
-                  belowBarData: BarAreaData(show: false),
-                ),
-              ],
-            ),
-          ),
+                ],
+              )),
         ),
       ),
     );
@@ -211,27 +226,48 @@ class _EcgScreenState extends State<EcgScreen> {
 class CircularBuffer {
   final int size;
   final List<double> _buffer;
-  int _index = 0;
+  bool _hasData = false;
 
   CircularBuffer(this.size) : _buffer = List.filled(size, 0);
 
   void add(double value) {
-    _buffer[_index] = value;
-    _index = (_index + 1) % size;
+    // Shift all values to the right
+    for (int i = size - 1; i > 0; i--) {
+      _buffer[i] = _buffer[i - 1];
+    }
+    // Add new value at the start
+    _buffer[0] = value;
+    _hasData = true;
+  }
+
+  void clear() {
+    _buffer.fillRange(0, size, 0);
+    _hasData = false;
   }
 
   List<FlSpot> getSpots() {
+    if (!_hasData) return [];
+
     List<FlSpot> spots = [];
-    for (int i = 0; i < size; i++) {
-      double x = i * 0.5; // Adjust x-axis range
-      double y = _buffer[(_index + i) % size];
-      if (i > 0 && spots.isNotEmpty) {
-        // Ensure stability at 0 when there is no value
-        y = y != 0 ? y : spots.last.y;
-      }
-      spots.add(FlSpot(x, y));
+
+    // Start point at x=0.1, y=0
+    spots.add(FlSpot(0, 200));
+
+    // Add a point slightly ahead to create straight line to first value
+    if (_buffer[0] != 0) {
+      spots.add(FlSpot(0.2, _buffer[0]));
     }
 
+    // Add the actual data points
+    for (int i = 0; i < size; i++) {
+      double x = i * (10 / size); // Distribute points evenly across x-axis
+      double y = _buffer[i];
+
+      // Only add non-zero values or values after we've seen a non-zero value
+      if (y != 0 || spots.length > 1) {
+        spots.add(FlSpot(x + 0.2, y));
+      }
+    }
     return spots;
   }
 }
@@ -244,6 +280,7 @@ class EcgProcessor {
     List<double> values = [];
 
     for (int i = 0; i < data.length; i++) {
+      print(' data : ${data[i]}');
       buffer[i % PACKET_SIZE] = data[i];
 
       // Check for complete packet with 0xFF header

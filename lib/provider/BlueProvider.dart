@@ -148,7 +148,7 @@ class BlueProvider with ChangeNotifier {
 
   void _onDataReceived(Uint8List data) {
     try {
-      //print('Received data: ${String.fromCharCodes(data)}');
+      print('Received data: ${String.fromCharCodes(data)}');
       // _receivedData = data;
       // notifyListeners();
 

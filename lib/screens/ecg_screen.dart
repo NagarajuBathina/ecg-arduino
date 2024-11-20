@@ -18,7 +18,7 @@ class _EcgScreenState extends State<EcgScreen> {
   final CircularBuffer ecgData = CircularBuffer(1800);
   double currentX = 0;
 //  static const int maxDataPoints = 600; // 3 seconds of data at 200Hz
-  static const double xAxisDuration = 10.0; // 3 seconds window
+  static const double xAxisDuration = 5.0; // 5 seconds window
   static const double minY = -200;
   static const double maxY = 500;
   bool isReading = false;
@@ -88,7 +88,7 @@ class _EcgScreenState extends State<EcgScreen> {
   }
 
   void _startChartUpdate() {
-    _updateTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _updateTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!mounted) {
         _updateTimer?.cancel();
         return;
@@ -141,17 +141,17 @@ class _EcgScreenState extends State<EcgScreen> {
           height: 400,
           child: LineChart(
               swapAnimationDuration: animationDuration,
-              swapAnimationCurve: Curves.easeInOut,
+              swapAnimationCurve: Curves.elasticInOut,
               LineChartData(
                 minX: 0,
-                maxX: xAxisDuration,
+                maxX: (ecgData.size - 1) * (5 / ecgData.size),
                 minY: minY,
                 maxY: maxY,
                 backgroundColor: Colors.black,
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: true,
-                  horizontalInterval: 200,
+                  horizontalInterval: 100,
                   verticalInterval: 1,
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
@@ -208,12 +208,12 @@ class _EcgScreenState extends State<EcgScreen> {
                   LineChartBarData(
                     spots: isReading ? ecgData.getSpots() : [],
                     isCurved: true,
-                    curveSmoothness: 0.1,
+                    curveSmoothness: 0.4,
                     color: Colors.greenAccent,
                     barWidth: 2,
                     dotData: FlDotData(show: false),
-                    belowBarData: BarAreaData(show: false),
-                    isStrokeCapRound: true,
+                    // belowBarData: BarAreaData(show: false),
+                    // isStrokeCapRound: true,
                   ),
                 ],
               )),
@@ -249,23 +249,17 @@ class CircularBuffer {
     if (!_hasData) return [];
 
     List<FlSpot> spots = [];
+    double xInterval = 5 / size; // Calculate spacing based on duration and size
+    const int samplingRate = 5; // Show every 5th point
 
-    // Start point at x=0.1, y=0
-    spots.add(FlSpot(0, 200));
-
-    // Add a point slightly ahead to create straight line to first value
-    if (_buffer[0] != 0) {
-      spots.add(FlSpot(0.2, _buffer[0]));
-    }
-
-    // Add the actual data points
     for (int i = 0; i < size; i++) {
-      double x = i * (10 / size); // Distribute points evenly across x-axis
-      double y = _buffer[i];
-
-      // Only add non-zero values or values after we've seen a non-zero value
-      if (y != 0 || spots.length > 1) {
-        spots.add(FlSpot(x + 0.2, y));
+      if (i % samplingRate == 0) {
+        // Skip intermediate points
+        double x = i * xInterval;
+        double y = _buffer[i];
+        if (y != 0) {
+          spots.add(FlSpot(x, y));
+        }
       }
     }
     return spots;

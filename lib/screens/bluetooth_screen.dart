@@ -112,6 +112,13 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   }
 
   @override
+  void setState(VoidCallback fn) {
+    if (mounted) {
+      super.setState(fn);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<BlueProvider>(builder: (context, listener, _) {
       return Scaffold(

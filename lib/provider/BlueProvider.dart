@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_final_fields, avoid_print
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -24,9 +25,6 @@ class BlueProvider with ChangeNotifier {
   List<BluetoothDevice> get devices => _devices;
   Stream<Uint8List> get onDataReceived => _dataStreamController.stream;
   List<int> get ecgvalues => _ecgvalues;
-
-  // List<TrackerRecord> _readings = [];
-  // List<TrackerRecord> get readings => _readings;
 
   BlueProvider() {
     initialize();
@@ -55,36 +53,19 @@ class BlueProvider with ChangeNotifier {
 
   Future<void> checkPermissions() async {
     var statuses = await [
-      Permission.location,
       Permission.bluetooth,
       Permission.bluetoothConnect,
       Permission.bluetoothScan,
-      // Permission.bluetoothAdvertise,
     ].request();
 
-    if (statuses[Permission.location]!.isDenied ||
-            statuses[Permission.bluetooth]!.isDenied ||
-            statuses[Permission.bluetoothConnect]!.isDenied ||
-            statuses[Permission.bluetoothScan]!.isDenied
-        //  ||
-        // statuses[Permission.bluetoothAdvertise]!.isDenied
-        ) {
+    if (statuses[Permission.bluetooth]!.isDenied ||
+        statuses[Permission.bluetoothConnect]!.isDenied ||
+        statuses[Permission.bluetoothScan]!.isDenied) {
       print("Necessary permissions denied.");
       return;
     }
     print("All necessary permissions granted.");
   }
-
-  // Future<void> getPairedDevices() async {
-  //   _bluetooth.startDiscovery();
-  //   final permissionsStatus = await Permission.location.status;
-  //   if (permissionsStatus.isGranted) {
-  //     _devices = await _bluetooth.getBondedDevices();
-  //     notifyListeners();
-  //   } else {
-  //     // Handle the case when location permission is not granted
-  //   }
-  // }
 
   void startDiscovery() async {
     if (_isDiscovering) {
@@ -146,15 +127,25 @@ class BlueProvider with ChangeNotifier {
     }
   }
 
+  void sendRaw(List<int> bytes) async {
+    if (_isConnected) {
+      final data = Uint8List.fromList(bytes);
+      print("Sending RAW: $data");
+      _connection?.output.add(data);
+      await _connection?.output.allSent;
+    }
+  }
+
   void _onDataReceived(Uint8List data) {
     try {
       //print('Received data: ${String.fromCharCodes(data)}');
       // _receivedData = data;
       // notifyListeners();
 
-      if (data.isNotEmpty && data[0] == 0xFF) {
-        _dataStreamController.add(data);
-      }
+      // if (data.isNotEmpty && data[0] == 0xFF) {
+      print("recieved data: ${Uint8List.fromList(data)}");
+      _dataStreamController.add(Uint8List.fromList(data));
+      // }
     } catch (error) {
       print('Error processing data: $error');
     }
@@ -176,21 +167,4 @@ class BlueProvider with ChangeNotifier {
       _onConnectionClosed();
     }
   }
-
-  // Future<List<WifiNetwork>> scanWifiNetworks() async {
-  //   List<WifiNetwork> networks = [];
-
-  //   try {
-  //     // final noPermissions = await WifiFlutter.promptPermissions();
-  //     // if (noPermissions) {
-  //     //   return networks;
-  //     // }
-
-  //     networks = (await WifiFlutter.wifiNetworks).toList();
-  //   } catch (e) {
-  //     print('Error retrieving Wi-Fi networks: $e');
-  //   }
-
-  //   return networks;
-  // }
 }

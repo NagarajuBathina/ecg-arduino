@@ -1,302 +1,132 @@
-// ignore_for_file: prefer_const_constructors, library_private_types_in_public_api
+// import 'dart:typed_data';
 
-import 'dart:async';
+// import 'package:fl_chart/fl_chart.dart';
+// import 'package:flutter/material.dart';
+// import 'package:flutter/services.dart';
+// import 'package:provider/provider.dart';
 
-import 'package:ecg_arduino/provider/BlueProvider.dart';
-import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+// import '../provider/BlueProvider.dart';
 
-class EcgScreen extends StatefulWidget {
-  const EcgScreen({super.key});
+// class EcgScreen extends StatefulWidget {
+//   const EcgScreen({super.key});
 
-  @override
-  _EcgScreenState createState() => _EcgScreenState();
-}
+//   @override
+//   State<EcgScreen> createState() => _EcgScreenState();
+// }
 
-class _EcgScreenState extends State<EcgScreen> {
-  final CircularBuffer ecgData = CircularBuffer(1800);
-  double currentX = 0;
-//  static const int maxDataPoints = 600; // 3 seconds of data at 200Hz
-  static const double xAxisDuration = 5.0; // 5 seconds window
-  static const double minY = -200;
-  static const double maxY = 500;
-  bool isReading = false;
-  late BlueProvider _blueProvider;
-  StreamSubscription? _dataSubscription;
-  final EcgProcessor _processor = EcgProcessor();
-  Timer? _updateTimer;
-  static const Duration animationDuration = Duration(milliseconds: 200);
-  @override
-  void initState() {
-    super.initState();
-    _blueProvider = Provider.of<BlueProvider>(context, listen: false);
-    _startChartUpdate();
-  }
+// class _EcgScreenState extends State<EcgScreen> {
+//   final List<FlSpot> _points = [];
+//   double x = 0;
+//   final int maxSamples = 600;
+//   Stream<Uint8List>? _ecgStream;
+//   late BlueProvider blueProvider;
 
-  void _addDataPoint(double value) {
-    if (!mounted) return;
-    print(value);
-    ecgData.add(value);
-    setState(() {}); // Trigger chart redraw
-  }
+//   @override
+//   void initState() {
+//     super.initState();
+//     SystemChrome.setPreferredOrientations([
+//       DeviceOrientation.landscapeLeft,
+//       DeviceOrientation.landscapeRight,
+//     ]);
+//     WidgetsBinding.instance.addPostFrameCallback((_) {
+//       blueProvider = Provider.of<BlueProvider>(context, listen: false);
+//       _ecgStream = blueProvider.onDataReceived;
+//       _listenToEcg();
+//     });
+//   }
 
-  void _startReading() {
-    if (!mounted) return;
-    setState(() {
-      isReading = true;
-      currentX = 0;
-    });
+//   void _listenToEcg() {
+//     _ecgStream?.listen((data) {
+//       // Convert ASCII packets to text
+//       final text = String.fromCharCodes(data);
+//       if (text.startsWith("on") ||
+//           text.contains("!") ||
+//           text.contains("?") ||
+//           text.contains(";")) {
+//         print("Non-ECG: $text");
+//         return;
+//       }
 
-    // Send command to start ECG readings
-    _blueProvider.sendData('5');
+//       // Parse 6-byte ECG sample
+//       final sample = _parseEcgPacket(data);
+//       if (sample == null) return;
 
-    // Accumulate processed values and update in batches
-    final List<double> buffer = [];
-    const int batchIntervalMs = 1000;
+//       // Add to graph
+//       if (_points.length > maxSamples) _points.removeAt(0);
+//       _points.add(FlSpot(x, sample.toDouble()));
+//       x += 1;
 
-    // Setup data listener
-    _dataSubscription = _blueProvider.onDataReceived.listen((data) {
-      List<double> processedValues = _processor.processData(data);
-      buffer.addAll(processedValues);
+//       setState(() {});
+//     });
+//   }
 
-      // Periodically flush buffer to add data points
-      Timer(Duration(milliseconds: batchIntervalMs), () {
-        if (buffer.isNotEmpty) {
-          buffer.forEach(_addDataPoint);
-          buffer.clear();
-        }
-      });
-    });
-  }
+//   int? _parseEcgPacket(Uint8List b) {
+//     if (b.length != 6) return null;
+//     if (b[0] != 0xFF) return null;
 
-  void _stopReading() {
-    if (!mounted) return;
-    setState(() {
-      isReading = false;
-    });
+//     int value = (b[1] << 2) | ((b[2] & 0xC0) >> 6);
 
-    // Send command to stop ECG readings
-    _blueProvider.sendData('1'); // ASCII '1'
+//     return value;
+//   }
 
-    // Cancel data subscription
-    _dataSubscription?.cancel();
-    _dataSubscription = null;
-    ecgData.clear();
-    // Reset chart to empty state
-    _stopChartUpdate();
-  }
+//   @override
+//   void dispose() {
+//     super.dispose();
+//     SystemChrome.setPreferredOrientations([
+//       DeviceOrientation.portraitUp,
+//       DeviceOrientation.portraitDown,
+//     ]);
+//   }
 
-  void _startChartUpdate() {
-    _updateTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (!mounted) {
-        _updateTimer?.cancel();
-        return;
-      }
-      setState(() {}); // Trigger chart redraw at 60Hz
-    });
-  }
+//   @override
+//   Widget build(BuildContext context) {
+//     final isConnected = context.watch<BlueProvider>().isConnected;
 
-  void _stopChartUpdate() {
-    _updateTimer?.cancel();
-  }
-
-  @override
-  void dispose() {
-    // Cancel timer first
-    _updateTimer?.cancel();
-    _updateTimer = null;
-
-    // Then cancel subscription
-    _dataSubscription?.cancel();
-    _dataSubscription = null;
-
-    // Finally call super.dispose()
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              if (isReading) {
-                _stopReading();
-              } else {
-                _startReading();
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isReading ? Colors.red[300] : Colors.grey[300],
-            ),
-            child: Text(isReading ? 'STOP' : 'START'),
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: EdgeInsets.all(16),
-        child: SizedBox(
-          height: 400,
-          child: LineChart(
-              swapAnimationDuration: animationDuration,
-              swapAnimationCurve: Curves.elasticInOut,
-              LineChartData(
-                minX: 0,
-                maxX: (ecgData.size - 1) * (5 / ecgData.size),
-                minY: minY,
-                maxY: maxY,
-                backgroundColor: Colors.black,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: true,
-                  horizontalInterval: 100,
-                  verticalInterval: 1,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: Colors.grey[300],
-                      strokeWidth: 0.5,
-                    );
-                  },
-                  getDrawingVerticalLine: (value) {
-                    return FlLine(
-                      color: Colors.grey[300],
-                      strokeWidth: 0.5,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: 1,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          value.toStringAsFixed(1),
-                          style: const TextStyle(fontSize: 12),
-                        );
-                      },
-                    ),
-                  ),
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 40,
-                      interval: 100,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          value.toInt().toString(),
-                          style: TextStyle(fontSize: 12),
-                        );
-                      },
-                    ),
-                  ),
-                  rightTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(
-                  show: true,
-                  border: Border.all(color: Colors.black, width: 1),
-                ),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: isReading ? ecgData.getSpots() : [],
-                    isCurved: true,
-                    curveSmoothness: 0.4,
-                    color: Colors.greenAccent,
-                    barWidth: 2,
-                    dotData: FlDotData(show: false),
-                    // belowBarData: BarAreaData(show: false),
-                    // isStrokeCapRound: true,
-                  ),
-                ],
-              )),
-        ),
-      ),
-    );
-  }
-}
-
-class CircularBuffer {
-  final int size;
-  final List<double> _buffer;
-  bool _hasData = false;
-
-  CircularBuffer(this.size) : _buffer = List.filled(size, 0);
-
-  void add(double value) {
-    // Shift all values to the right
-    for (int i = size - 1; i > 0; i--) {
-      _buffer[i] = _buffer[i - 1];
-    }
-    // Add new value at the start
-    _buffer[0] = value;
-    _hasData = true;
-  }
-
-  void clear() {
-    _buffer.fillRange(0, size, 0);
-    _hasData = false;
-  }
-
-  List<FlSpot> getSpots() {
-    if (!_hasData) return [];
-
-    List<FlSpot> spots = [];
-    double xInterval = 5 / size; // Calculate spacing based on duration and size
-    const int samplingRate = 5; // Show every 5th point
-
-    for (int i = 0; i < size; i++) {
-      if (i % samplingRate == 0) {
-        // Skip intermediate points
-        double x = i * xInterval;
-        double y = _buffer[i];
-        if (y != 0) {
-          spots.add(FlSpot(x, y));
-        }
-      }
-    }
-    return spots;
-  }
-}
-
-class EcgProcessor {
-  static const int PACKET_SIZE = 6;
-  final List<int> buffer = List.filled(PACKET_SIZE, 0);
-
-  List<double> processData(List<int> data) {
-    List<double> values = [];
-
-    for (int i = 0; i < data.length; i++) {
-      print(' data : ${data[i]}');
-      buffer[i % PACKET_SIZE] = data[i];
-
-      // Check for complete packet with 0xFF header
-      if (i % PACKET_SIZE == PACKET_SIZE - 1 && buffer[0] == 0xFF) {
-        // Extract values using bit manipulation
-        int value1 = ((buffer[1] << 2) | (buffer[2] >> 6)) & 0x3FF;
-        int value2 = ((buffer[2] << 4) | (buffer[3] >> 4)) & 0x3FF;
-        int value3 = ((buffer[3] << 6) | (buffer[4] >> 2)) & 0x3FF;
-        int value4 = ((buffer[4] << 8) | buffer[5]) & 0x3FF;
-
-        // Scale values to match your Y-axis range (100-800)
-        values.add(scaleValue(value1));
-        values.add(scaleValue(value2));
-        values.add(scaleValue(value3));
-        values.add(scaleValue(value4));
-      }
-    }
-    return values;
-  }
-
-  double scaleValue(int value) {
-    // Scale 10-bit value (0-1023) to your chart range (100-800)
-    return 100 + (value * 700 / 1023);
-  }
-}
+//     return Scaffold(
+//       backgroundColor: Colors.black,
+//       appBar: AppBar(
+//         title: const Text("ECG Monitor"),
+//         backgroundColor: Colors.green.shade700,
+//         actions: [
+//           IconButton(
+//             onPressed: () {
+//               blueProvider.sendData('53'); // '5' → Start ECG
+//             },
+//             icon: const Icon(Icons.play_arrow),
+//           ),
+//           IconButton(
+//             onPressed: () {
+//               blueProvider.disconnect();
+//             },
+//             icon: const Icon(Icons.stop, color: Colors.red),
+//           ),
+//         ],
+//       ),
+//       body: Center(
+//         child: isConnected
+//             ? LineChart(
+//                 LineChartData(
+//                   minY: 0,
+//                   maxY: 1023,
+//                   minX: x - maxSamples,
+//                   maxX: x,
+//                   lineBarsData: [
+//                     LineChartBarData(
+//                       spots: _points,
+//                       isCurved: true,
+//                       color: Colors.greenAccent,
+//                       barWidth: 2,
+//                       dotData: FlDotData(show: false),
+//                     ),
+//                   ],
+//                   titlesData: FlTitlesData(show: false),
+//                   gridData: FlGridData(show: false),
+//                   borderData: FlBorderData(show: false),
+//                 ),
+//               )
+//             : const Text("Device not connected",
+//                 style: TextStyle(color: Colors.white, fontSize: 16)),
+//       ),
+//     );
+//   }
+// }

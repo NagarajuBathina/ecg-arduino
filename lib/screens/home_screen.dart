@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'bluetooth_screen.dart';
-import 'dummy_ecg_screen.dart';
+import 'ecg_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

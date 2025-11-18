@@ -1,110 +1,172 @@
+// ecg_real_samples_screen.dart
 import 'dart:async';
-import '../app/constants.dart';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 
-class EcgScreen extends StatefulWidget {
-  const EcgScreen({super.key});
+import 'chart_data.dart';
+
+class EcgRealSamplesScreen extends StatefulWidget {
+  const EcgRealSamplesScreen({super.key});
 
   @override
-  State<EcgScreen> createState() => _EcgScreenState();
+  State<EcgRealSamplesScreen> createState() => _EcgRealSamplesScreenState();
 }
 
-class _EcgScreenState extends State<EcgScreen> {
-  late List<ChartData> _points;
+class _EcgRealSamplesScreenState extends State<EcgRealSamplesScreen> {
+  // Chart buffer size (how many x points visible on screen)
+  final int maxSamples = 800;
 
-  // Total number of points visible on the screen at one time
-  final int maxSamples = 300;
+  // Sample rate used to generate beats (samples per second)
+  final int sampleRate = 360;
 
-  // The current "x" position (index) where the chart is drawing
-  int _xIndex = 0;
-
+  late List<ChartData> points;
   Timer? timer;
 
-  int arrayIndex = 0; // Current simulation array
-  int valueIndex = 0; // Position inside simulation array
+  // playback pointers
+  int xIndex = 0;
+  int beatIndex = 0;
+  int sampleIndexInBeat = 0;
 
-  final List<List<double>> allArrays = [
-    ecgdatas1,
-    ecgdatas2,
-    ecgdatas3,
-    ecgdatas4,
-    ecgdatas5,
-    ecgdatas6,
-    ecgdatas7,
-    ecgdatas8,
-    ecgdata9,
-    ecgdata10
-  ];
+  // gain to convert mV -> chart pixels (adjust visually)
+  final double gain = 1200.0;
+
+  // pre-generated realistic beats (mV)
+  late final List<List<double>> beats;
 
   @override
   void initState() {
     super.initState();
 
-    // 1. Initialize the _points list with a fixed size
-    // We fill it with "empty" data. x goes from 0 to maxSamples-1.
-    _points = List<ChartData>.generate(
-      maxSamples,
-      (index) => ChartData(index.toDouble(), 0),
-    );
+    // initialize chart buffer with nulls so empty segments appear as gaps
+    points = List.generate(maxSamples, (i) => ChartData(i.toDouble(), null));
+
+    // create realistic beat templates (360 samples each ~ 1 second at 60 BPM)
+    beats = [
+      generateEcgBeat(sampleRate, 1.0,
+          rAmplitude: 1.0, tAmplitude: 0.35, pAmplitude: 0.12),
+      generateEcgBeat(sampleRate, 1.0,
+          rAmplitude: 1.05, tAmplitude: 0.30, pAmplitude: 0.14),
+      generateEcgBeat(sampleRate, 0.95,
+          rAmplitude: 0.95, tAmplitude: 0.36, pAmplitude: 0.13),
+    ];
 
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
 
-    startEcgSimulation();
+    startSweep();
   }
 
-  void startEcgSimulation() {
-    timer = Timer.periodic(const Duration(milliseconds: 15), (t) {
-      addNextSample();
+  void startSweep() {
+    // Medium sweep speed: tick ~14ms => ~71 updates/sec
+    timer = Timer.periodic(const Duration(milliseconds: 5), (_) {
+      final currentBeat = beats[beatIndex];
+
+      // If we reached the end of current beat, move to next beat (introduces variability)
+      if (sampleIndexInBeat >= currentBeat.length) {
+        beatIndex = (beatIndex + 1) % beats.length;
+        sampleIndexInBeat = 0;
+      }
+
+      // get mV sample and scale
+      double mv = currentBeat[sampleIndexInBeat++];
+      double y = mv * gain;
+
+      // push into circular buffer
+      points[xIndex] = ChartData(xIndex.toDouble(), y);
+
+      // advance x index (wrap)
+      xIndex = (xIndex + 1) % maxSamples;
+
+      // create tiny sweep head gap (clear next sample) — gives the "moving head" effect
+      points[(xIndex + 1) % maxSamples] =
+          ChartData((xIndex + 1).toDouble(), null);
+
+      // redraw
+      setState(() {});
     });
   }
 
-  void addNextSample() {
-    // 1. Get the 'y' value from your simulation data
-    List<double> currentArray = allArrays[arrayIndex];
+  /// Generate a single ECG beat sampled at [fs] Hz and lasting [durationSec] seconds.
+  /// Returns a list of samples in millivolts (mV).
+  ///
+  /// The beat uses Gaussian bumps for P, Q, R, S, and T with physiologic widths and timing.
+  List<double> generateEcgBeat(int fs, double durationSec,
+      {double rAmplitude = 1.0,
+      double tAmplitude = 0.35,
+      double pAmplitude = 0.12}) {
+    final int n = (fs * durationSec).round();
+    final List<double> out = List<double>.filled(n, 0.0);
 
-    // Check if simulation array is done, loop to next
-    if (valueIndex >= currentArray.length) {
-      arrayIndex = (arrayIndex + 1) % allArrays.length;
-      valueIndex = 0;
+    // timing positions (fractions of duration)
+    final double pCenter = 0.16 * durationSec;
+    final double qCenter = 0.36 * durationSec;
+    final double rCenter = 0.40 * durationSec;
+    final double sCenter = 0.43 * durationSec;
+    final double tCenter = 0.62 * durationSec;
+
+    // widths in seconds (physiologic)
+    const double pSigma = 0.025; // P-wave ~ 25 ms sigma
+    const double qSigma = 0.012; // Q narrow
+    const double rSigma = 0.010; // very narrow R spike
+    const double sSigma = 0.018;
+    const double tSigma = 0.060; // T-wave broad
+
+    // small physiologic baseline wander (very low freq) - optional, set low amplitude
+    const double baselineAmp = 0.02; // mV
+    const double baselineFreq = 0.33; // Hz
+
+    for (int i = 0; i < n; i++) {
+      double t = i / fs; // seconds from beat start
+
+      // P-wave (small, rounded)
+      out[i] += pAmplitude * gaussian(t, pCenter, pSigma);
+
+      // Q (small negative)
+      out[i] += -0.18 * gaussian(t, qCenter, qSigma);
+
+      // R (large positive sharp spike)
+      out[i] += rAmplitude * gaussian(t, rCenter, rSigma);
+
+      // S (negative after R)
+      out[i] += -0.25 * gaussian(t, sCenter, sSigma);
+
+      // T-wave (broad positive)
+      out[i] += tAmplitude * gaussian(t, tCenter, tSigma);
+
+      // optional gentle baseline wander
+      out[i] += baselineAmp * sin(2 * pi * baselineFreq * t);
     }
-    double rawValue = currentArray[valueIndex];
-    valueIndex++;
-    double scaled = normalize(rawValue, currentArray);
 
-    // 2. Update the chart data AT THE CURRENT X-INDEX
-    // We are *updating* the list, not adding to it.
-    _points[_xIndex] = ChartData(_xIndex.toDouble(), scaled);
-
-    // 3. Create the "draw head" gap
-    // We set the *next* few points to 'null' to create the blank space
-    // that shows the screen refreshing.
-    int gapSize = 40; // How wide the blank gap is
-    for (int i = 1; i <= gapSize; i++) {
-      int gapIndex = (_xIndex + i) % maxSamples; // Wrap around
-      _points[gapIndex] = ChartData(gapIndex.toDouble(), null);
-    }
-
-    // 4. Move the x-index for the next update
-    // This makes it wrap around from (maxSamples - 1) back to 0.
-    _xIndex = (_xIndex + 1) % maxSamples;
-
-    setState(() {});
+    // optional small smoothing to avoid ultra-sharp discrete spikes
+    return smooth(out, window: 3);
   }
 
-  // This function is no longer needed as we don't add/remove points
-  // void _addPoint(double y) { ... }
+  /// simple Gaussian centered at mu with width sigma
+  double gaussian(double x, double mu, double sigma) {
+    final double z = (x - mu) / sigma;
+    return exp(-0.5 * z * z);
+  }
 
-  double normalize(double value, List<double> array) {
-    // This simple normalization can be weak if the array has one big spike.
-    // A more stable way is to use a fixed min/max if you know it.
-    // But this works for simulation.
-    double mean = array.reduce((a, b) => a + b) / array.length;
-    return (value - mean) * 800; // adjust scale as needed
+  /// small moving-average smoothing
+  List<double> smooth(List<double> data, {int window = 3}) {
+    if (window <= 1) return List.from(data);
+    final int n = data.length;
+    final List<double> out = List<double>.filled(n, 0.0);
+    final int w = window;
+    for (int i = 0; i < n; i++) {
+      int start = max(0, i - w ~/ 2);
+      int end = min(n - 1, i + w ~/ 2);
+      double sum = 0;
+      for (int j = start; j <= end; j++) {
+        sum += data[j];
+      }
+      out[i] = sum / (end - start + 1);
+    }
+    return out;
   }
 
   @override
@@ -121,49 +183,25 @@ class _EcgScreenState extends State<EcgScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text("ECG Monitor", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green.shade700,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(0),
+      body: SafeArea(
         child: SfCartesianChart(
-          // Hide all the chart fluff
           plotAreaBorderWidth: 0,
           primaryXAxis: NumericAxis(
-            isVisible: false,
-            // SET A FIXED, STATIC range for the X-axis
-            minimum: 0,
-            maximum: maxSamples.toDouble() - 1,
-          ),
-          primaryYAxis: NumericAxis(
-            minimum: -400,
-            maximum: 1200,
-            isVisible: false,
-          ),
+              isVisible: false, minimum: 0, maximum: maxSamples.toDouble()),
+          primaryYAxis:
+              NumericAxis(isVisible: false, minimum: -2000, maximum: 2000),
           series: <LineSeries<ChartData, double>>[
             LineSeries<ChartData, double>(
               color: Colors.greenAccent,
               width: 3,
-              dataSource: _points,
-              xValueMapper: (ChartData data, _) => data.x,
-              yValueMapper: (ChartData data, _) => data.y,
-              // THIS IS THE KEY: Tell the chart to treat 'null' values as a gap
-              emptyPointSettings: EmptyPointSettings(
-                mode: EmptyPointMode.gap,
-              ),
+              dataSource: points,
+              xValueMapper: (ChartData d, _) => d.x,
+              yValueMapper: (ChartData d, _) => d.y,
+              emptyPointSettings: EmptyPointSettings(mode: EmptyPointMode.gap),
             )
           ],
         ),
       ),
     );
   }
-}
-
-// We must update ChartData to allow 'null' y-values for the gap
-class ChartData {
-  final double x;
-  final double? y; // Allow y to be null
-
-  ChartData(this.x, this.y);
 }

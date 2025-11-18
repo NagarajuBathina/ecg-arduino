@@ -1,7 +1,4 @@
-// ignore_for_file: prefer_final_fields, avoid_print
-
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -17,14 +14,11 @@ class BlueProvider with ChangeNotifier {
   final StreamController<Uint8List> _dataStreamController =
       StreamController<Uint8List>.broadcast();
 
-  List<int> _ecgvalues = [];
-
   BluetoothState get bluetoothState => _bluetoothState;
   bool get isDiscovering => _isDiscovering;
   bool get isConnected => _isConnected;
   List<BluetoothDevice> get devices => _devices;
   Stream<Uint8List> get onDataReceived => _dataStreamController.stream;
-  List<int> get ecgvalues => _ecgvalues;
 
   BlueProvider() {
     initialize();
@@ -32,11 +26,9 @@ class BlueProvider with ChangeNotifier {
 
   Future<void> initialize() async {
     _bluetoothState = await _bluetooth.state;
-    print(_bluetoothState);
     notifyListeners();
 
     _bluetooth.onStateChanged().listen((state) {
-      print("state: ${state}");
       _bluetoothState = state;
       notifyListeners();
 
@@ -53,19 +45,34 @@ class BlueProvider with ChangeNotifier {
 
   Future<void> checkPermissions() async {
     var statuses = await [
+      Permission.location,
       Permission.bluetooth,
       Permission.bluetoothConnect,
       Permission.bluetoothScan,
+      Permission.bluetoothAdvertise,
     ].request();
 
-    if (statuses[Permission.bluetooth]!.isDenied ||
+    if (statuses[Permission.location]!.isDenied ||
+        statuses[Permission.bluetooth]!.isDenied ||
         statuses[Permission.bluetoothConnect]!.isDenied ||
         statuses[Permission.bluetoothScan]!.isDenied) {
       print("Necessary permissions denied.");
       return;
     }
+
     print("All necessary permissions granted.");
   }
+
+  // Future<void> getPairedDevices() async {
+  //   _bluetooth.startDiscovery();
+  //   final permissionsStatus = await Permission.location.status;
+  //   if (permissionsStatus.isGranted) {
+  //     _devices = await _bluetooth.getBondedDevices();
+  //     notifyListeners();
+  //   } else {
+  //     // Handle the case when location permission is not granted
+  //   }
+  // }
 
   void startDiscovery() async {
     if (_isDiscovering) {
@@ -114,6 +121,7 @@ class BlueProvider with ChangeNotifier {
   }
 
   Future<void> sendData(String data) async {
+    // Vibration.vibrate(duration: 100, amplitude: 100);
     try {
       if (_isConnected) {
         // utf8.encode("START")
@@ -127,27 +135,18 @@ class BlueProvider with ChangeNotifier {
     }
   }
 
-  void sendRaw(List<int> bytes) async {
-    if (_isConnected) {
-      final data = Uint8List.fromList(bytes);
-      print("Sending RAW: $data");
-      _connection?.output.add(data);
-      await _connection?.output.allSent;
-    }
-  }
-
   void _onDataReceived(Uint8List data) {
     try {
-      //print('Received data: ${String.fromCharCodes(data)}');
+      // print('Received data: ${String.fromCharCodes(data)}');
       // _receivedData = data;
       // notifyListeners();
 
-      // if (data.isNotEmpty && data[0] == 0xFF) {
-      print("recieved data: ${Uint8List.fromList(data)}");
-      _dataStreamController.add(Uint8List.fromList(data));
-      // }
+      // print("RAW BYTES: ${data.toList()}");
+      // print(String.fromCharCodes(data));
+      // stdout.write(String.fromCharCodes(data));
+      _dataStreamController.add(data);
     } catch (error) {
-      print('Error processing data: $error');
+      print(error);
     }
   }
 
